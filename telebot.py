@@ -5,6 +5,7 @@ from telegram.ext import Updater, CommandHandler
 from base import *
 from candies import *
 from calc import *
+from phonebook import *
 
 # Enable logging
 logging.basicConfig(
@@ -27,6 +28,7 @@ def main() -> None:
     # on different commands - answer in Telegram
     dispatcher.add_handler(CommandHandler("start", start))
     initCandiesConversation(dispatcher)
+    initPhonebookConversation(dispatcher)
 
     initCalcConversation(dispatcher)
 

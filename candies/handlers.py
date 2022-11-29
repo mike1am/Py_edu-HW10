@@ -2,8 +2,8 @@ from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import CallbackContext, ConversationHandler, CommandHandler,\
         MessageHandler, Filters, CallbackQueryHandler
 
-from candies.model import setTotalCandies, setMaxDecr, getTotalCandies, getMaxDecr,\
-        botTurn, playerTurn
+from candies.model import botTurn
+from base.data_storing import loadConv, saveConv, clearConv
 
 (
     TOTAL_CANDIES_STATE,
@@ -13,7 +13,7 @@ from candies.model import setTotalCandies, setMaxDecr, getTotalCandies, getMaxDe
 ) = range(4)
 
 
-def initCandiesConversation (dispatcher) -> None:
+def initCandiesConversation(dispatcher) -> None:
     dispatcher.add_handler(ConversationHandler(
         entry_points=[CommandHandler('candies', candiesCommand)],
         states={
@@ -27,12 +27,23 @@ def initCandiesConversation (dispatcher) -> None:
 
 
 def candiesCommand(update: Update, context: CallbackContext) -> int:
+    data = loadConv(update.effective_user.id)
+    if not data:
+        data = {
+            'userName': update.effective_user.username,
+            'totalCandies': 0,
+            'maxDecr': 0,
+        }
+    
     update.message.reply_text("Игра в конфеты" +
             "\nВведите начальное количество конфет:")
+
+    saveConv(data, update.effective_user.id)
     return TOTAL_CANDIES_STATE
 
 
 def inputTotalCandiesHandler(update: Update, context: CallbackContext) -> int:
+    data = loadConv(update.effective_user.id)
     userInput = update.message.text
     
     if not userInput.isdigit() or int(userInput) <= 0:
@@ -40,13 +51,17 @@ def inputTotalCandiesHandler(update: Update, context: CallbackContext) -> int:
             "\nВведите начальное количество конфет:")
         return TOTAL_CANDIES_STATE
     
-    setTotalCandies(int(userInput))
+    # setTotalCandies(int(userInput))
+    data['totalCandies'] = int(userInput)
     
     update.message.reply_text("Введите, сколько можно максимально брать конфет:")
+
+    saveConv(data, update.effective_user.id)
     return MAX_DECR_STATE
 
 
 def inputMaxDecrHandler(update: Update, context: CallbackContext) -> int:
+    data = loadConv(update.effective_user.id)
     userInput = update.message.text
     
     if not userInput.isdigit() or int(userInput) <= 0:
@@ -54,11 +69,13 @@ def inputMaxDecrHandler(update: Update, context: CallbackContext) -> int:
             "\nВведите, сколько можно максимально брать конфет:")
         return MAX_DECR_STATE
         
-    if int(userInput) > getTotalCandies():
+    if int(userInput) > data['totalCandies']:
         update.message.reply_text("Число не должно превышать начальное количество конфет." +
             "\nВведите, сколько можно максимально брать конфет:")
         return MAX_DECR_STATE
-    else: setMaxDecr(int(userInput))
+    else:
+        # setMaxDecr(int(userInput))
+        data['maxDecr'] = int(userInput)
 
     replyMarkup = InlineKeyboardMarkup(
         [[
@@ -67,30 +84,36 @@ def inputMaxDecrHandler(update: Update, context: CallbackContext) -> int:
     )
     
     update.message.reply_text("Кто будет брать первым?", reply_markup=replyMarkup)
+    
+    saveConv(data, update.effective_user.id)
     return FIRST_TURN_STATE
 
 
 def kbFirstTurnHandler(update: Update, context: CallbackContext) -> int:
+    data = loadConv(update.effective_user.id)
     messageText = ("Начинаем игру")
 
     query = update.callback_query
     query.answer()
 
     if query.data == 'bot':
-        botAnswer = botTurnOutput()
+        botAnswer = botTurnOutput(data)
         messageText += "\n" + botAnswer[1]
         
         if botAnswer[0]:
             query.edit_message_text(messageText)
+            clearConv(update.effective_user.id)
             return ConversationHandler.END
 
     messageText += "\n\nСколько берёте конфет?"
     query.edit_message_text(messageText)
 
+    saveConv(data, update.effective_user.id)
     return PLAYER_TURN_STATE
 
 
 def playerTurnHandler(update: Update, context: CallbackContext) -> int:
+    data = loadConv(update.effective_user.id)
     userInput = update.message.text
     
     if not userInput.isdigit() or int(userInput) <= 0:
@@ -99,35 +122,38 @@ def playerTurnHandler(update: Update, context: CallbackContext) -> int:
         return PLAYER_TURN_STATE
     
     decr = int(userInput)
-    if decr > getMaxDecr() or decr > getTotalCandies():
+    if decr > data['maxDecr'] or decr > data['totalCandies']:
         update.message.reply_text("Так много конфет взять нельзя." +
             "\nСколько берёте конфет?")
         return PLAYER_TURN_STATE
     
-    playerTurn(decr)
+    data['totalCandies'] -= decr
 
-    if not getTotalCandies():
+    if not data['totalCandies']:
         update.message.reply_text("Игра закончена. Вы выиграли. Поздравляю!")
+        clearConv(update.effective_user.id)
         return ConversationHandler.END
         
-    botAnswer = botTurnOutput()
+    botAnswer = botTurnOutput(data)
     messageText = botAnswer[1]
 
     if botAnswer[0]:
         update.message.reply_text(messageText)
+        clearConv(update.effective_user.id)
         return ConversationHandler.END
 
     messageText += "\n\nСколько берёте конфет?"
     update.message.reply_text(messageText)
 
+    saveConv(data, update.effective_user.id)
     return PLAYER_TURN_STATE
 
 
 # Возвращает картеж: (признак завершения игры, сообщение для вывода)
-def botTurnOutput():
-    decr = botTurn()
+def botTurnOutput(data):
+    decr = botTurn(data)
     
-    if not getTotalCandies():
+    if not data['totalCandies']:
         return (True, f"Я взял {decr} конфет\nИгра закончена. Вы проиграли.")
     else:
-        return (False, f"Я взял {decr} конфет\nОсталось {getTotalCandies()}")
+        return (False, f"Я взял {decr} конфет\nОсталось {data['totalCandies']}")

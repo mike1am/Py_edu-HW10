@@ -8,6 +8,7 @@ def start(update: Update, context: CallbackContext) -> None:
     user = update.effective_user
     update.message.reply_text(f"Привет, {user.first_name}!\nСписок команд:" +
         "\n/candies - игра в конфеты" +
-        "\n/calc - калькулятор"
+        "\n/calc - калькулятор" +
+        "\n/phonebook - тел. справочник"
     )
     
