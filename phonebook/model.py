@@ -1,6 +1,6 @@
 from base.data_storing import saveData, loadData
 
-TASK_ID = "pb"
+TASK_ID = "Phonebook"
 
 
 # Формирует список контактов на основе строки, в которой должно 

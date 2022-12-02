@@ -32,7 +32,6 @@ def main() -> None:
 
     initCalcConversation(dispatcher)
 
-
     # Start the Bot
     updater.start_polling()
 

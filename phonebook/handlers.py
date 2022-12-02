@@ -1,49 +1,33 @@
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import CallbackContext, ConversationHandler, CommandHandler,\
         MessageHandler, Filters, CallbackQueryHandler
 
 from base import saveConv, loadConv, clearConv
 from .model import getContactList, addContact, edContact, delContacts
+from .ui_view import menuOut, showContacts
 
 (
     MENU_INPUT_STATE,
     NAME_INPUT_STATE,
     PHONE_INPUT_STATE,
-    CONF_KB_STATE,
+    CONV_KB_STATE,
 ) = range(4)
-
-MENU_ITEMS = {
-    1: "Добавить контакт",
-    2: "Удалить контакты",
-    3: "Редактировать контакт",
-    4: "Просмотр контактов",
-    0: "Выход"
-}
 
 
 def initPhonebookConversation(dispatcher) -> None:
     dispatcher.add_handler(ConversationHandler(
         entry_points=[CommandHandler('phonebook', phonebookCommand)],
         states={
-            MENU_INPUT_STATE: [MessageHandler(Filters.text, menuHandler)],
+            MENU_INPUT_STATE: [CallbackQueryHandler(menuHandler)],
             NAME_INPUT_STATE: [MessageHandler(Filters.text, nameHandler)],
-            PHONE_INPUT_STATE: [MessageHandler(Filters.text, phoneHandler)],
-            CONF_KB_STATE: [CallbackQueryHandler(confKbHandler)],
+            PHONE_INPUT_STATE: [MessageHandler(Filters.regex(
+                r"^(8|(\+\d{1,4})[ ]?)?(\(\d{1,5}\))?([\- ]\d+)+$"
+            ), phoneHandler)],
+            CONV_KB_STATE: [CallbackQueryHandler(convKbHandler)],
         },
         fallbacks=[],
     ))
-
-
-def menuOut(update: Update):
-    keyboard = [[MENU_ITEMS[i]] for i in MENU_ITEMS.keys()]
-    replayMarkup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    if hasattr(update.message, 'reply_text'):
-        update.message.reply_text("Выберите действие", reply_markup=replayMarkup)
-    else:
-        # update.callback_query.edit_message_text("Выберите действие", reply_markup=replayMarkup)
-        update.callback_query.edit_message_text("Введите что-нибудь")
         
-
 
 def phonebookCommand(update: Update, context: CallbackContext) -> int:
     convData = {
@@ -61,30 +45,28 @@ def phonebookCommand(update: Update, context: CallbackContext) -> int:
 def menuHandler(update: Update, context: CallbackContext) -> int:
     convData = loadConv(update.effective_user.id)
     
-    operNum = list(MENU_ITEMS.keys())[
-        list(MENU_ITEMS.values()).index(update.message.text)
-    ]
-    convData['oper'] = operNum
+    query = update.callback_query
+    query.answer()
+
+    convData['oper'] = query.data
     
     saveConv(convData, update.effective_user.id)
     
-    match operNum:
-        case 0: # выход
+    match convData['oper']:
+        case 'end':
             clearConv(update.effective_user.id)
-            update.message.reply_text("Вы вышли из телефонного справочника")
+            query.message.reply_text("Вы вышли из телефонного справочника")
             return ConversationHandler.END
-        case 1:
-            update.message.reply_text("Введите имя контакта")
+        case 'add' | 'del' | 'ed':
+            query.message.reply_text("Введите имя контакта")
             return NAME_INPUT_STATE
-        case 2:
-            update.message.reply_text("Введите имя контакта")
-            return NAME_INPUT_STATE
-        case 3:
-            update.message.reply_text("Введите имя контакта")
-            return NAME_INPUT_STATE
-        case 4:
-            update.message.reply_text("Введите имя контакта. all - все")
-            return NAME_INPUT_STATE
+        case 'show':
+            replayMarkup = InlineKeyboardMarkup([
+                [InlineKeyboardButton("Все контакты", callback_data=1)],
+                [InlineKeyboardButton("Выбор по имени", callback_data=0)],
+            ])
+            query.message.reply_text("Выберите:", reply_markup=replayMarkup)
+            return CONV_KB_STATE
 
 
 def nameHandler(update: Update, context: CallbackContext) -> int:
@@ -92,21 +74,21 @@ def nameHandler(update: Update, context: CallbackContext) -> int:
     convData['name'] = update.message.text
     
     match convData['oper']:
-        case 1: # добавление
+        case 'add':
             if getContactList(convData['name'], update.effective_user.id):
                 update.message.reply_text(
                     "Такой контакт уже существует. Используйте пункт редактирования контакта"
-                )    
+                )
                 menuOut(update)
                 return MENU_INPUT_STATE
+            
             else:
                 update.message.reply_text("Введите телефон контакта")
             
                 saveConv(convData, update.effective_user.id)
                 return PHONE_INPUT_STATE
         
-        case 2: # удаление
-            update.message.reply_text("Найдены контакты:")
+        case 'del':
             convData['contacts'] = getContactList(
                 convData['name'],
                 update.effective_user.id
@@ -123,18 +105,21 @@ def nameHandler(update: Update, context: CallbackContext) -> int:
                     reply_markup=replyMarkup
                 )
                 saveConv(convData, update.effective_user.id)
-                return CONF_KB_STATE
+                return CONV_KB_STATE
+            
             else:
                 menuOut(update)
                 return MENU_INPUT_STATE
         
-        case 3: # редактирование
-            if not convData['contacts']: # первый прогон
+        case 'ed':
+            # первый прогон (поиск контакта для редактирования)
+            if not convData['contacts']:
                 update.message.reply_text("Редактирование контакта:")
                 convData['contacts'] = getContactList(
                     convData['name'],
                     update.effective_user.id
                 )[:1] # берётся только первый контакт, если совпадений по имени было несколько
+                
                 showContacts(convData['contacts'], update)
                 
                 if convData['contacts']: # если найден контакт для редактирования
@@ -146,7 +131,9 @@ def nameHandler(update: Update, context: CallbackContext) -> int:
                 else:
                     menuOut(update)
                     return MENU_INPUT_STATE
-            else: # второй прогон
+            
+            # второй прогон (обработка нового имени)
+            else:
                 if convData['name'] == "=": # если "=", то имя берётся из данных контакта
                     convData['name'] = convData['contacts'][0]['name']
                 update.message.reply_text(
@@ -155,23 +142,21 @@ def nameHandler(update: Update, context: CallbackContext) -> int:
                 saveConv(convData, update.effective_user.id)
                 return PHONE_INPUT_STATE
         
-        case 4: # просмотр
-            if convData['name'].lower() == "all":
-                convData['name'] = ""
+        case 'show':
             showContacts(
                 getContactList(convData['name'], update.effective_user.id),
                 update
             )
             menuOut(update)
             return MENU_INPUT_STATE
-    
-    
+
+            
 def phoneHandler(update: Update, context: CallbackContext) -> int:
     convData = loadConv(update.effective_user.id)
     convData['phone'] = update.message.text
 
     match convData['oper']:
-        case 1: # добавление
+        case 'add':
             addContact(
                 convData['name'],
                 convData['phone'],
@@ -180,7 +165,7 @@ def phoneHandler(update: Update, context: CallbackContext) -> int:
             menuOut(update)
             return MENU_INPUT_STATE
         
-        case 3: # редактирование
+        case 'ed':
             if convData['phone'] == "=": # если "=", то тел. берётся из данных контакта
                 convData['phone'] = convData['contacts'][0]['phone']
             
@@ -197,32 +182,31 @@ def phoneHandler(update: Update, context: CallbackContext) -> int:
             return MENU_INPUT_STATE
 
         
-def confKbHandler(update: Update, context: CallbackContext) -> int:
+def convKbHandler(update: Update, context: CallbackContext) -> int:
     convData = loadConv(update.effective_user.id)
     
     query = update.callback_query
     query.answer()
 
-    # удаление
-    if query.data == "Y":
-        delContacts(convData['contacts'], update.effective_user.id)
+    match convData['oper']:
+        case 'del':
+            if query.data == "Y":
+                delContacts(convData['contacts'], update.effective_user.id)
 
-    convData['contacts'] = []
+            convData['contacts'] = [] # для корректной работы след. опер. редактирования контакта
 
-    menuOut(update)
-    saveConv(convData, update.effective_user.id)
-    return MENU_INPUT_STATE
+            menuOut(update)
+            saveConv(convData, update.effective_user.id)
+            return MENU_INPUT_STATE
 
-
-def showContacts(contactList, update: Update):
-    outStr = ""
-    for contact in contactList:
-        outStr += f"\nИмя: {contact['name']}" + \
-                f"\nТелефон: {contact['phone']}\n"
-    if not outStr:
-        outStr = "Контакты не найдены"
-    else: outStr = "Найдены контакты:\n" + outStr
-    if hasattr(update.message, 'reply_text'):
-        update.message.reply_text(outStr)
-    else:
-        update.callback_query.edit_message_text(outStr)
+        case 'show':
+            if int(query.data):
+                showContacts(
+                    getContactList("", update.effective_user.id), # вывод всех контактов
+                    update
+                )   
+                menuOut(update)
+                return MENU_INPUT_STATE
+            else:
+                query.message.reply_text("Введите имя контакта")
+                return NAME_INPUT_STATE

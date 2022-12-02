@@ -5,7 +5,7 @@ convStore = {}
 
 
 def loadData(sig, taskId):
-    fName = f"{taskId}-{sig}.pickle"
+    fName = f".\\data_store\\{taskId}\\{sig}.pickle"
     
     if not os.path.exists(fName):
         return []
@@ -15,7 +15,9 @@ def loadData(sig, taskId):
     
 
 def saveData(data, sig, taskId):
-    with open(f"{taskId}-{sig}.pickle", "wb") as f:
+    if not os.path.isdir(f".\\data_store\\{taskId}"):
+        os.mkdir(f".\\data_store\\{taskId}")
+    with open(f".\\data_store\\{taskId}\\{sig}.pickle", "wb") as f:
         pickle.dump(data, f)
 
 
