@@ -2,8 +2,8 @@ from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import CallbackContext, ConversationHandler, CommandHandler,\
         MessageHandler, Filters, CallbackQueryHandler
 
-from candies.model import botTurn
-from base.data_storing import loadConv, saveConv, clearConv
+from .model import botTurn, gameScore
+from base import loadConv, saveConv, clearConv, loadData, saveData
 
 (
     TOTAL_CANDIES_STATE,
@@ -51,7 +51,6 @@ def inputTotalCandiesHandler(update: Update, context: CallbackContext) -> int:
             "\nВведите начальное количество конфет:")
         return TOTAL_CANDIES_STATE
     
-    # setTotalCandies(int(userInput))
     data['totalCandies'] = int(userInput)
     
     update.message.reply_text("Введите, сколько можно максимально брать конфет:")
@@ -74,7 +73,6 @@ def inputMaxDecrHandler(update: Update, context: CallbackContext) -> int:
             "\nВведите, сколько можно максимально брать конфет:")
         return MAX_DECR_STATE
     else:
-        # setMaxDecr(int(userInput))
         data['maxDecr'] = int(userInput)
 
     replyMarkup = InlineKeyboardMarkup(
@@ -101,7 +99,8 @@ def kbFirstTurnHandler(update: Update, context: CallbackContext) -> int:
         messageText += "\n" + botAnswer[1]
         
         if botAnswer[0]:
-            query.edit_message_text(messageText)
+            query.edit_message_text(messageText + \
+                    f"\nСчёт: {gameScore(-1, update.effective_user.id)}")
             clearConv(update.effective_user.id)
             return ConversationHandler.END
 
@@ -130,7 +129,8 @@ def playerTurnHandler(update: Update, context: CallbackContext) -> int:
     data['totalCandies'] -= decr
 
     if not data['totalCandies']:
-        update.message.reply_text("Игра закончена. Вы выиграли. Поздравляю!")
+        update.message.reply_text("Игра закончена. Вы выиграли. Поздравляю!" + \
+                f"\nСчёт: {gameScore(1, update.effective_user.id)}")
         clearConv(update.effective_user.id)
         return ConversationHandler.END
         
@@ -138,7 +138,8 @@ def playerTurnHandler(update: Update, context: CallbackContext) -> int:
     messageText = botAnswer[1]
 
     if botAnswer[0]:
-        update.message.reply_text(messageText)
+        update.message.reply_text(messageText + \
+                f"\nСчёт: {gameScore(-1, update.effective_user.id)}")
         clearConv(update.effective_user.id)
         return ConversationHandler.END
 

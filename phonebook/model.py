@@ -1,6 +1,9 @@
+import re
+
 from base.data_storing import saveData, loadData
 
 TASK_ID = "Phonebook"
+PHONE_RE = r"^(8|(\+\d{1,4})[ ]?)?(\(\d{1,5}\))?([\- ]?\d+)+$"
 
 
 # Формирует список контактов на основе строки, в которой должно 
@@ -8,17 +11,20 @@ TASK_ID = "Phonebook"
 # sig - уникальная сигнатура набора данных справочника
 # Возвращает список словарей вида {'ind': <уникальный индекс контакта>,
 # 'name': <имя контакта>, 'phone': <телефон контакта>}
-def getContactList(contName: str, sig: str):
+def getContactList(contName: str, sig: str, strong = False):
     phonebookData = loadData(sig, TASK_ID)
     resList = []
     
     for ind, contact in enumerate(phonebookData):
-        if contName.lower() in contact['name'].lower():
+        if not strong and contName.lower() in contact['name'].lower() \
+                or strong and contName == contact['name']:
             resList.append({
                 'ind': ind,
                 'name': contact['name'],
                 'phone': contact['phone']
             })
+            
+            if strong: return resList
 
     return resList
 
@@ -27,7 +33,6 @@ def addContact(contName: str, contPhone: str, sig: str) -> None:
     phonebookData = loadData(sig, TASK_ID)
 
     phonebookData.append({
-        'ind': len(phonebookData), 
         'name': contName,
         'phone': contPhone
     })
@@ -35,12 +40,11 @@ def addContact(contName: str, contPhone: str, sig: str) -> None:
     saveData(phonebookData, sig, TASK_ID)
 
 
-# contact - словарь с контактом, как эл. списка, возвращаемого getContactList
-def edContact(contact, contName: str, contPhone: str, sig: str) -> None:
+def edContact(contInd, newName: str, newPhone: str, sig: str) -> None:
     phonebookData = loadData(sig, TASK_ID)
 
-    phonebookData[contact['ind']]['name'] = contName
-    phonebookData[contact['ind']]['phone'] = contPhone
+    phonebookData[contInd]['name'] = newName
+    phonebookData[contInd]['phone'] = newPhone
 
     saveData(phonebookData, sig, TASK_ID)
 
@@ -53,3 +57,22 @@ def delContacts(contList, sig):
         phonebookData.pop(ind - i) # поскольку при удалении индексы сдвигаются
 
     saveData(phonebookData, sig, TASK_ID) 
+
+
+def importContList(contList, sig):
+    impCnt = 0
+
+    for contact in contList:
+        if not contact['phone'] or re.fullmatch(PHONE_RE, contact['phone']): # если пусто или телефон
+            matchContacts = getContactList(contact['name'], sig, strong=True)
+
+            if matchContacts:
+                edContact(matchContacts[0]['ind'], contact['name'], contact['phone'], sig)
+            
+            else:
+                addContact(contact['name'], contact['phone'], sig)
+
+            impCnt += 1
+
+    return impCnt
+
